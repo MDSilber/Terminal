@@ -173,10 +173,10 @@
 {
     struct winsize win;
     memset(&win, 0, sizeof(struct winsize));
-	win.ws_row = self.terminalHeight;
-	win.ws_col = self.terminalWidth;
-	win.ws_xpixel = 0;
-	win.ws_ypixel = 0;
+    win.ws_row = self.terminalHeight;
+    win.ws_col = self.terminalWidth;
+    win.ws_xpixel = 0;
+    win.ws_ypixel = 0;
 
     NSInteger shellIdentifier = [[self class] uniqueShellIdentifier];
 
@@ -361,6 +361,7 @@ void iconvFallback(const char *inbuf, size_t inbufsize, void (*write_replacement
 - (void)handleOutput:(NSString *)output forFD:(int)fd;
 {
     MMTask *task = self.tasksByFD[@(fd)];
+  NSLog(@"Got output: %@", output);
 
     dispatch_async(self.outputQueue, ^{
         @try {
@@ -492,6 +493,18 @@ void iconvFallback(const char *inbuf, size_t inbufsize, void (*write_replacement
     }
 
     return [self.unusedShells[0] integerValue];
+}
+
+- (void)ghettoFunctionByRemote;
+{
+  struct termios terminalSettings;
+  [self setUpTermIOSettings:&terminalSettings];
+  terminalSettings.c_iflag = BRKINT | IUTF8;
+	terminalSettings.c_oflag = 0;
+	terminalSettings.c_cflag = CS8 | CREAD | HUPCL;
+	terminalSettings.c_lflag = ECHOKE | ECHOE | ECHOK | ECHOCTL | ISIG | ICANON | IEXTEN | PENDIN;
+  NSLog(@"Ghetto-ing up %d", [[self.tasksByFD allKeys][0] intValue]);
+  ioctl([[self.tasksByFD allKeys][0] intValue], TIOCSETA, &terminalSettings);
 }
 
 @end

@@ -18,6 +18,7 @@
 #import "MMAppDelegate.h"
 #import "MMInfoOverlayView.h"
 #import "MMInfoPanelController.h"
+#import "MMRemoteTerminalConnection.h"
 
 #import <tgmath.h>
 #import <QuartzCore/QuartzCore.h>
@@ -244,11 +245,13 @@
 
 - (void)directoryChangedTo:(NSString *)newPath;
 {
-    if (self.currentDirectory) {
+    if (self.currentDirectory && !self.isRemoteConnection) {
         [self unregisterDirectory:self.currentDirectory];
     }
     self.currentDirectory = newPath;
-    [self registerDirectoryToBeObserved:newPath];
+    if (!self.isRemoteConnection) {
+      [self registerDirectoryToBeObserved:newPath];
+    }
 
     [self updateDirectoryView:newPath];
     [self updateTitle];
@@ -258,15 +261,31 @@
 {
     [self.currentDirectoryLabel setStringValue:[NSString stringWithFormat:@"Current directory: %@", directoryPath]];
 
-    NSArray *fileURLs = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[NSURL fileURLWithPath:directoryPath] includingPropertiesForKeys:@[NSURLCustomIconKey, NSURLEffectiveIconKey, NSURLFileResourceTypeKey, NSURLNameKey] options:NSDirectoryEnumerationSkipsHiddenFiles error:nil];
-    NSMutableArray *directoryCollectionViewData = [NSMutableArray arrayWithCapacity:[fileURLs count]];
-    for (NSURL *file in fileURLs) {
-        NSDictionary *fileResources = [file resourceValuesForKeys:@[NSURLCustomIconKey, NSURLEffectiveIconKey, NSURLFileResourceTypeKey, NSURLNameKey] error:nil];
-        [directoryCollectionViewData addObject:
-         @{
-         @"name": fileResources[NSURLNameKey],
-         @"icon": fileResources[NSURLEffectiveIconKey],
-         }];
+    NSMutableArray *directoryCollectionViewData;
+    if (self.isRemoteConnection) {
+        NSDictionary *files = [((MMRemoteTerminalConnection *)self.terminalConnection) dataForPath:directoryPath];
+        directoryCollectionViewData = [NSMutableArray arrayWithCapacity:files.count];
+        for (NSString *file in files) {
+            NSImage *icon = [files[file] boolValue] ? [[NSWorkspace sharedWorkspace] iconForFile:@"/usr"] : [[NSWorkspace sharedWorkspace] iconForFileType:file.pathExtension];
+            [directoryCollectionViewData addObject:
+             @{
+             @"name": file,
+             @"icon": icon,
+             }];
+            
+        }
+        directoryCollectionViewData = [[directoryCollectionViewData sortedArrayUsingDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"name.lowercaseString" ascending:YES]]] mutableCopy];
+    } else {
+        NSArray *fileURLs = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[NSURL fileURLWithPath:directoryPath] includingPropertiesForKeys:@[NSURLCustomIconKey, NSURLEffectiveIconKey, NSURLFileResourceTypeKey, NSURLNameKey] options:NSDirectoryEnumerationSkipsHiddenFiles error:nil];
+        directoryCollectionViewData = [NSMutableArray arrayWithCapacity:[fileURLs count]];
+        for (NSURL *file in fileURLs) {
+            NSDictionary *fileResources = [file resourceValuesForKeys:@[NSURLCustomIconKey, NSURLEffectiveIconKey, NSURLFileResourceTypeKey, NSURLNameKey] error:nil];
+            [directoryCollectionViewData addObject:
+             @{
+             @"name": fileResources[NSURLNameKey],
+             @"icon": fileResources[NSURLEffectiveIconKey],
+             }];
+        }
     }
 
     // XXX: This is a hack to arrange the items vertically first, then horizontally in the NSCollectionView.
@@ -355,6 +374,11 @@
     } else if (![self.taskViewControllers.lastObject task].isFinished) {
         [self.window makeFirstResponder:((MMTaskCellViewController *)self.taskViewControllers.lastObject).outputView];
     }
+}
+
+- (BOOL)isRemoteConnection;
+{
+  return [[self.terminalConnection class] isSubclassOfClass:[MMRemoteTerminalConnection class]];
 }
 
 # pragma mark - Directory watching
@@ -617,7 +641,7 @@ static void directoryWatchingCallback(CFFileDescriptorRef kqRef, CFOptionFlags c
 {
     MMAppDelegate *appDelegate = [NSApp delegate];
     [appDelegate terminalWindowWillClose:self];
-    if (self.currentDirectory) {
+    if (self.currentDirectory && !self.isRemoteConnection) {
         [self unregisterDirectory:self.currentDirectory];
     }
 }
